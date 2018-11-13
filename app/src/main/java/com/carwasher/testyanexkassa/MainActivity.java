@@ -1,17 +1,12 @@
 package com.carwasher.testyanexkassa;
 
-import android.Manifest;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.os.Build;
 import android.support.annotation.NonNull;
-import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.support.v7.widget.AppCompatButton;
 import android.support.v7.widget.AppCompatEditText;
 import android.support.v7.widget.AppCompatTextView;
-import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
@@ -64,6 +59,8 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
     private String orderId;
     private String mCurrency;
     private String mAmount2pay;
+    private boolean mFirstCheck = true;
+    private boolean m3DSActivityShown = false;
 
     private final int ACTIVITY_3D_SECURE_REQUEST = 1;
 
@@ -82,6 +79,12 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
     @Override
     protected void onDestroy() {
         Checkout.detach();
+        if (mTimer != null) {
+            try{
+                mTimer.cancel();
+            }catch (Exception e){}
+            mTimer = null;
+        }
         super.onDestroy();
     }
 
@@ -114,11 +117,9 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
         mCurrencySpinner.setAdapter(adapter);
         mCurrencySpinner.setSelection(Arrays.asList(items).indexOf(Currencies.RUB));
 
-        isPermissionGranted();
-
     }
 
-    //ВЫЗЫВАЕМ ОПЛАТУ
+    //Create payment token, payment is not sending anywhere Just token
     private void onSimplePayButtonClicked(){
         mLoadingLayout.setVisibility(View.VISIBLE);
         mRunmeBtn.setEnabled(false);
@@ -138,24 +139,63 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
     }
 
     //Result of process of tokenization
+    //If everything is ok -> send payment to Yandex.Kassa web API
     @Override
     public void onResult(@NonNull String paymentToken, @NonNull PaymentMethodType type) {
         mCurrentPaymentToken = paymentToken;
         mCurrentPaymentMethod = type;
-        enableAutoRefreshPaymentStatus(true);
-        //Call Yandex.Kassa to process current payment OR to check payment result
-        mCurrentPayment = new YandexKassaPayment(mAmount2pay, mCurrency,"Test payment", "https://washercar.ru", mCurrentPaymentMethod, mCurrentPaymentToken, orderId);
+        mAutoRefresh = true;
+        //Call Yandex.Kassa to process current payment
+        mCurrentPayment = new YandexKassaPayment(mAmount2pay, mCurrency,"Test payment",
+                ConfigurationService.getInstance().getMyBaseUrl(), mCurrentPaymentMethod, mCurrentPaymentToken, orderId);
         YandexKassaAPIService service = YandexKassaAPIService.getInstance();
         service.checkPayment(orderId, mCurrentPayment, this);
     }
 
-    private void onStopRefreshButtonClicked(){
-        mLoadingLayout.setVisibility(View.GONE);
-        mRunmeBtn.setEnabled(true);
-        enableAutoRefreshPaymentStatus(false);
-        if (mTimer != null){
-            mTimer.cancel();
+    //Result of payment operation
+    @Override
+    public void onCheckPaymentResponse(Call<YandexKassaPayment> call, Response<YandexKassaPayment> response) {
+        if (response.body() == null){
+            //error
+            try {
+                mCurrentPayment.setErrorDescription(response.errorBody().string());
+            } catch (IOException e) {
+                mCurrentPayment.setErrorDescription("Exception when obtaining web service error: " + e.getMessage());
+            }
+            return;
         }
+        mCurrentPayment.updateFromWebAPIResponse(response.body());
+        processPaymentStatusResult();
+    }
+
+    //Payment operation failed
+    @Override
+    public void onCheckPaymentFailure(Call<YandexKassaPayment> call, Throwable t) {
+        mCurrentPayment.setErrorDescription(t.getMessage());
+    }
+
+    public void processPaymentStatusResult() {
+        if (!m3DSActivityShown
+                && mCurrentPayment.getStatus() != null
+                && mCurrentPayment.getStatus().equals("pending")
+                && mCurrentPayment.getConfirmation() != null ){
+            show3DSActivity();
+            return;
+        }
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                mCounter++;
+                updateResultStats();
+                if (mFirstCheck &&
+                        mCurrentPayment.getPaymentStatus() != PaymentStatuses.success){
+                    mFirstCheck = false;
+                    enableAutoRefreshPaymentStatus(true);
+                }
+            }
+        });
+
     }
 
     private void updateResultStats(){
@@ -169,20 +209,20 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
         {
             mRetryCntr.setText("");
         }
-        if (mCurrentPayment.getPaymentStatus() == PaymentStatuses.success
-                //|| (mPaymentResult.getErrorCode() != null && !mPaymentResult.getErrorCode().isEmpty())
-            )
+        if (mCurrentPayment.getPaymentStatus() == PaymentStatuses.success)
             enableAutoRefreshPaymentStatus(false);
-
     }
 
-    private void refreshPaymentStatus(){
+    private void plan2RefreshPaymentStatus(){
         if (!mAutoRefresh)
             return;
+        if (mTimer != null)
+            mTimer.cancel();
         mTimer = new Timer();
         checkPaymentResultTask = new CheckPaymentResultTask();
         mTimer.schedule(checkPaymentResultTask, ConfigurationService.getInstance().getRetryInterval());
     }
+
 
     private void enableAutoRefreshPaymentStatus(boolean enable){
         mAutoRefresh = enable;
@@ -190,102 +230,7 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
         if (!enable)
             mLoadingLayout.setVisibility(View.GONE);
 
-        refreshPaymentStatus();
-    }
-
-    public  boolean isPermissionGranted() {
-        if (Build.VERSION.SDK_INT >= 23) {
-            if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE)
-                    == PackageManager.PERMISSION_GRANTED) {
-                Log.v("TAG","Permission is granted");
-                return true;
-            } else {
-
-                Log.v("TAG","Permission is revoked");
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_PHONE_STATE}, 2);
-                return false;
-            }
-        }
-        else { //permission is automatically granted on sdk<23 upon installation
-            Log.v("TAG","Permission is granted");
-            return true;
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           String permissions[], int[] grantResults) {
-        switch (requestCode) {
-
-            case 2: {
-
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(getApplicationContext(), "Permission granted", Toast.LENGTH_SHORT).show();
-                    //do ur specific task after read phone state granted
-                } else {
-                    Toast.makeText(getApplicationContext(), "Permission denied", Toast.LENGTH_SHORT).show();
-                }
-                return;
-            }
-
-            // other 'case' lines to check for other
-            // permissions this app might request
-        }
-    }
-
-    @Override
-    public void onCheckPaymentResponse(Call<YandexKassaPayment> call, Response<YandexKassaPayment> response) {
-        if (response.body() == null){
-            //error
-            try {
-                mCurrentPayment.setErrorDescription(response.errorBody().string());
-            } catch (IOException e) {
-                mCurrentPayment.setErrorDescription("Exception when obtaining web service error: " + e.getMessage());
-            }
-            return;
-        }
-        mCurrentPayment.updateFromWebAPIResponse(response.body());
-        CheckPaymentStatusResult();
-    }
-
-    @Override
-    public void onCheckPaymentFailure(Call<YandexKassaPayment> call, Throwable t) {
-        mCurrentPayment.setErrorDescription(t.getMessage());
-    }
-
-    public void CheckPaymentStatusResult() {
-        if (mCurrentPayment.getStatus() != null
-                && mCurrentPayment.getStatus().equals("pending")
-                && mCurrentPayment.getConfirmation() != null ){
-            //Show 3d-secure activity
-            Confirmation conf = mCurrentPayment.getConfirmation();
-            Intent intent = null;
-            try {
-                intent = Checkout.create3dsIntent(
-                        this,
-                        new URL(conf.getConfirmationUrl()),
-                        new URL((conf.getReturnUrl() == null || conf.getReturnUrl().length() == 0) ? "http://yandex.ru" : conf.getReturnUrl())
-
-                );
-                startActivityForResult(intent, ACTIVITY_3D_SECURE_REQUEST);
-            } catch (MalformedURLException e) {
-                Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
-            }
-
-            return;
-        }
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mCounter++;
-                updateResultStats();
-                if (mAutoRefresh)
-                {
-                    refreshPaymentStatus();
-                }
-            }
-        });
+        plan2RefreshPaymentStatus();
     }
 
     @Override
@@ -307,8 +252,40 @@ public class MainActivity extends AppCompatActivity implements IYandexKassaMSDKR
                     // data.getStringExtra(Checkout.EXTRA_ERROR_FAILING_URL) — URL, по которому произошла ошибка (может отсутствовать)
                     break;
             }
+            if (mFirstCheck){
+                mFirstCheck = false;
+                enableAutoRefreshPaymentStatus(true);
+            }
         }
     }
+
+    private void onStopRefreshButtonClicked(){
+        mLoadingLayout.setVisibility(View.GONE);
+        mRunmeBtn.setEnabled(true);
+        enableAutoRefreshPaymentStatus(false);
+        if (mTimer != null){
+            mTimer.cancel();
+        }
+    }
+
+    private void show3DSActivity() {
+        m3DSActivityShown = true;
+        //Show 3d-secure activity
+        Confirmation conf = mCurrentPayment.getConfirmation();
+        Intent intent = null;
+        try {
+            intent = Checkout.create3dsIntent(
+                    thisActivity,
+                    new URL(conf.getConfirmationUrl()),
+                    new URL((conf.getReturnUrl() == null || conf.getReturnUrl().length() == 0) ? ConfigurationService.getInstance().getMyBaseUrl() : conf.getReturnUrl())
+
+            );
+            startActivityForResult(intent, ACTIVITY_3D_SECURE_REQUEST);
+        } catch (MalformedURLException e) {
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
 
 
     class CheckPaymentResultTask extends TimerTask {

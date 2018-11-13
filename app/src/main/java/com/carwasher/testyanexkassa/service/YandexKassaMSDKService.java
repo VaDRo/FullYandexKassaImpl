@@ -35,8 +35,8 @@ public class YandexKassaMSDKService {
         }
 
         ShopParameters parameters = new ShopParameters(
-                "<Название магазина>",
-                "<Описание магазина>",
+                service.getMyShopName(),
+                service.getMyShopDescription(),
                 service.getYandexKassaMSDKPrivateKey(),
                 //new HashSet<PaymentMethodType>(Arrays.asList(PaymentMethodType.BANK_CARD)), // разрешенные способы оплаты (если передать пустое множество, покупатель увидит все способы)
                 Collections.singleton(PaymentMethodType.BANK_CARD), // разрешенные способы оплаты (если передать пустое множество, покупатель увидит все способы)

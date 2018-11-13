@@ -3,11 +3,23 @@ package com.carwasher.testyanexkassa.service;
 public class ConfigurationService {
     private static ConfigurationService _instance;
 
-    private String YandexKassaShopId = "YOUR_SHOP_ID";
+    private final String MyBaseUrl = "https://washercar.ru";
+    private final String YandexKassaShopId = "Your shop ID";
     //Mobile SDK secret key - key for Yandex.Kassa MSDK
-    private String YandexKassaMSDKPrivateKey = "YOUR_MOBILE_SDK_SECRET_KEY";
+    private final String YandexKassaMSDKPrivateKey = "Your MobileSDK key";
     //API Secret Key - key for accessing Yandex.Kassa Web API
-    private String YandexKassaPrivateKey = "YOUR_WEB_API_SECRET_KEY";
+    private final String YandexKassaPrivateKey = "Your Yandex.Kassa WebAPI key";
+    private final String MyShopName = "Тестовый магазин";
+    private final String MyShopDescription = "Это просто тестовый магазин";
+
+    public String getMyShopName() {
+        return MyShopName;
+    }
+
+    public String getMyShopDescription() {
+        return MyShopDescription;
+    }
+
     private int RetryInterval = 10000;     //Retry interval, milliseconds
     private boolean isTestMode = false;
 
@@ -21,6 +33,10 @@ public class ConfigurationService {
 
     public boolean isTestMode(){
         return isTestMode;
+    }
+
+    public String getMyBaseUrl(){
+        return MyBaseUrl;
     }
 
     public String getYandexKassaMSDKPrivateKey(){
