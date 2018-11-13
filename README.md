@@ -15,3 +15,12 @@ What do you need to have this app running:
 6. All done :)
 
 Please, be sure you filled constants on step 5 in right way!
+
+# General algorythm
+You need to use 2 APIs in general: Yandex.Kassa Web API and Yandex.Kassa Mobile SDK
+First of all, you need to create payment token to process payment with mobile SDK.
+After that you should call Web API to create payment. The same method of Web API should be called to check payment results
+
+# WARNING!
+In current version I can't process 3-D Secure check!
+This option is under construction.
