@@ -1,4 +1,4 @@
-# Full Yandex Kassa Impl
+# Implementation of Payment with Yandex Kassa API for Mobile App
 Full Yandex.Kassa implementation without web server support
 General way to process payment in mobile app through Yandex.Kassa is:
 - create payment token (Mobile SDK)
